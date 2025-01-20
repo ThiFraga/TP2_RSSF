@@ -1,16 +1,20 @@
 #include "common.h"
 
 #define BUFSIZE 512 // Tamanho máximo do buffer
-#define MAXPENDING 100 // Número máximo de conexões pendentes
+#define MAXPENDING 12 // Número máximo de conexões pendentes
 
 typedef struct {
-    int sock;
-    char type[12];
+    int clntSock;
+    int type;
 } Sensor;
+
+typedef struct {
+    Sensor sensores[MAXPENDING];
+} ListaSensores;
 
 struct ThreadArgs {
     int clntSock;
-    Sensor *sensores[10][10];
+    ListaSensores *listSensor;
 };
 
 void killServer(const char *msg){
@@ -19,15 +23,59 @@ void killServer(const char *msg){
     exit(1);
 }
 
-void handleSensor(int clntSocket) {
-    sensor_message msgRcv;
+void handleSensor(int clntSocket, ListaSensores *ls) {
+    sensor_message msgRcv, msg;
+    int type = 0;
 
-    for(;;){
-        ssize_t numBytesRcv = recv(clntSocket, &msgRcv, sizeof(msgRcv),0);
-        if(numBytesRcv >= 0) {
-            print("Mensagem:\n Type: %s\nCoord: %i %i\nmeasurement: %f\n",&(msgRcv.type),msgRcv.coords[0], msgRcv.coords[1], msgRcv.measurement);
+    ssize_t numBytesRcv = recv(clntSocket, &msgRcv, sizeof(msgRcv),0);
+
+    if(numBytesRcv > 0) {
+        if (strcmp(msgRcv.type, "temperature") == 0)
+            type = TEMPERATURE;
+        if (strcmp(msgRcv.type, "humidity") == 0)
+            type = HUMIDITY;
+        if (strcmp(msgRcv.type, "air_quality") == 0)
+            type = AIRQUALITY;
+
+        for (int i = 0; i < MAXPENDING; i++) {
+            if(ls->sensores[i].type == 0 && ls->sensores[i].clntSock == -2){
+                ls->sensores[i].type = type;
+                ls->sensores[i].clntSock = clntSocket;
+                break;
+            }
+        }
+        
+        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %f\n",msgRcv.type,msgRcv.coords[0],msgRcv.coords[1], msgRcv.measurement);
+        printf("Type: %i\n",type);
+        for(;;){
+            numBytesRcv = recv(clntSocket, &msg, sizeof(msg),0);
+            if(numBytesRcv > 0) {
+                printf("log:\n%s sensor in (%i,%i)\nmeasurement: %f\n",msg.type,msg.coords[0],msg.coords[1], msg.measurement);
+
+                for(int i = 0; i < MAXPENDING; i++) {
+                    if(ls->sensores[i].type == type && ls->sensores[i].clntSock >= 0) {
+                        printf(">>> Sending to: %i\n", clntSocket);
+                        send(ls->sensores[i].clntSock, &msg, sizeof(msg),0);
+                    }
+                }
+            }else {
+                printf("log:\n%s sensor in (%i,%i)\nmeasurement: %f\n",msg.type,msg.coords[0],msg.coords[1], (-1.0));
+                msg.measurement = -1;
+                msg.coords[0] = msgRcv.coords[0];
+                msg.coords[1] = msgRcv.coords[1];
+                strcpy(msg.type, msgRcv.type);
+
+                for(int i = 0; i < MAXPENDING; i++) {
+                    if(ls->sensores->type == type) {
+                            send(ls->sensores[i].clntSock, &msg, sizeof(msg),0);
+                    }
+                }
+                break;
+            }
         }
     }
+
+    return;
 }
 
 int identifyIPVersion(const char *param) {
@@ -47,9 +95,10 @@ void *ThreadMain(void *threadArgs) {
 
     //Extract socket file descriptor from argument
     int clntSock = ((struct ThreadArgs *) threadArgs)->clntSock;
+    ListaSensores *ls =  ((struct ThreadArgs *) threadArgs)->listSensor;
     free(threadArgs);
 
-    handleSensor(clntSock);
+    handleSensor(clntSock, ls);
 
     return (NULL);
 }
@@ -57,7 +106,7 @@ void *ThreadMain(void *threadArgs) {
 int main(int argc, char *argv[]) {
     in_port_t serverPort;
     int ipParam, domain;
-    Sensor sensores[10][10];
+    ListaSensores listSensores;
     
     // check number of params
     if(argc != 3) killServer("Error: wrong number of arguments:\nExample: ./server v4 51511");
@@ -102,26 +151,38 @@ int main(int argc, char *argv[]) {
 
     if(listen(servSock, MAXPENDING) < 0) killServer("listen() failed");
 
+    for(int i = 0; i < MAXPENDING; i++){
+        listSensores.sensores[i].clntSock = -2;
+        listSensores.sensores[i].type = 0;
+    }
+
     for(;;) {
         struct sockaddr_in clntAddr;
         socklen_t clntAddrLen = sizeof(clntAddr);
 
         int clntSock = accept(servSock, (struct sockaddr *)&clntAddr, &clntAddrLen);
-        if(clntSock < 0) killServer("accept() failed");
+        if(clntSock > 0) {
 
-        // create separeted memory for client
-        struct ThreadArgs *threadArgs = (struct ThreadArgs *)malloc(sizeof(struct ThreadArgs));
-        if(threadArgs == NULL) killServer("malloc() failed");
+            // create separeted memory for client
+            struct ThreadArgs *threadArgs = (struct ThreadArgs *)malloc(sizeof(struct ThreadArgs));
+            if(threadArgs != NULL) {
 
-        threadArgs->clntSock = clntSock;
+                threadArgs->clntSock = clntSock;
+                threadArgs->listSensor = &listSensores;
 
-        pthread_t threadID;
+                pthread_t threadID;
 
-        int returnValue = pthread_create(&threadID, NULL, ThreadMain, threadArgs);
+                int returnValue = pthread_create(&threadID, NULL, ThreadMain, threadArgs);
 
-        if(returnValue != 0) {
-            killServer("pthread_create() failed");
-            printf("with thread %lu\n", (unsigned long int) threadID);
+                if(returnValue != 0) {
+                    printf("pthread_create() failed");
+                    printf("with thread %lu\n", (unsigned long int) threadID);
+                }
+            }else {
+                printf("malloc() failed");
+            }
+        }else {
+            printf("accept() failed");
         }
 
     }
