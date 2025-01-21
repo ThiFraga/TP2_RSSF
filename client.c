@@ -33,7 +33,7 @@ struct dataT {
 double getDistance(int coordI[2],int coordThey[2]) {
     return sqrt(pow((double)(coordThey[0] - coordI[0]),2) + pow((double)(coordThey[1] - coordI[1]),2));
 }
-
+// get new measure based on sensor type
 float newMeasurement(float prevMeasu, float newMeasu, float distance, int type) {
     float minVal, maxVal, measurement;
     switch (type)
@@ -82,7 +82,7 @@ void handleInputErrors(const char *msg)
 float randomMeasurement(int type) {
     float measurement = 0;
     int maxVal = 0, minVal = 0;
-
+    // random seed
     srand(time(NULL));
     switch (type)
     {
@@ -105,7 +105,7 @@ float randomMeasurement(int type) {
     measurement = (minVal + (float)(rand() % (maxVal-minVal+100)))/100;
     return measurement;
 }
-
+// create sensor message based on params
 sensor_message handleMessage(int coords[2], int type, float measurement)
 {
     sensor_message message;
@@ -132,27 +132,27 @@ sensor_message handleMessage(int coords[2], int type, float measurement)
 
     return message;
 }
-
+// handle log messages
 void handleLog(sensor_message *msg, float prevMeasurement, float newMeasurement, int action){
     switch (action)
     {
     case 0:
-        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\naction: not neighbor\n",msg->type,msg->coords[0],msg->coords[1],msg->measurement);
+        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\naction: not neighbor\n\n",msg->type,msg->coords[0],msg->coords[1],msg->measurement);
         break;
     case 1:
-        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\naction: correction of %.4f\n",msg->type,msg->coords[0],msg->coords[1],msg->measurement, newMeasurement - prevMeasurement);
+        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\naction: correction of %.4f\n\n",msg->type,msg->coords[0],msg->coords[1],msg->measurement, newMeasurement - prevMeasurement);
         break;
     case 2:
-        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\naction: same location\n",msg->type,msg->coords[0],msg->coords[1],msg->measurement);
+        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\naction: same location\n\n",msg->type,msg->coords[0],msg->coords[1],msg->measurement);
         break;
     case 3:
-        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\naction: removed\n",msg->type,msg->coords[0],msg->coords[1],msg->measurement);
+        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\naction: removed\n\n",msg->type,msg->coords[0],msg->coords[1],msg->measurement);
         break;
     default:
         break;
     }
 }
-
+// add a new sensor to the chained list
 void addSensor(sensor_message *msg, Sensor *prev,Sensor *it, Neighbors *nList, double distance) {
 
     Sensor *newS = (Sensor *)malloc(sizeof(Sensor));
@@ -171,16 +171,17 @@ void addSensor(sensor_message *msg, Sensor *prev,Sensor *it, Neighbors *nList, d
         nList->first = newS;
     }
 }
-
+// process messages
 void handleMessagesReceived(sensor_message *msg, void *data, Neighbors *nList) {
     double distance = 0.0;
     int coord[2];
     coord[0] = ((struct dataT *)data)->msg->coords[0];
     coord[1] = ((struct dataT *)data)->msg->coords[1];
-    int diffCoord = (msg->coords[0] - coord[0]) + (msg->coords[1] - coord[1]);
+    int diffCoord = abs(msg->coords[0] - coord[0]) + abs(msg->coords[1] - coord[1]);
     int count = 0, action = ACTION_NOTNEIGHBOR;
     Sensor *prev = NULL, *it = nList->first;
     float prevMeasurement = ((struct dataT *)data)->msg->measurement;
+
 
     if (strcmp(msg->type, ((struct dataT *)data)->msg->type) == 0 && diffCoord != 0) {
         distance = getDistance(coord, msg->coords);
@@ -191,7 +192,7 @@ void handleMessagesReceived(sensor_message *msg, void *data, Neighbors *nList) {
                     addSensor(msg,prev,it,nList,distance);
                     break;
                 }
-                if(msg->coords[0] == it->coord[0] && msg->coords[1] == it->coord[1]) {
+                if(msg->coords[0] == it->coord[0] && msg->coords[1] == it->coord[1]) { //  stops if finds the sensor on the list
                     break;
                 }
 
@@ -202,13 +203,13 @@ void handleMessagesReceived(sensor_message *msg, void *data, Neighbors *nList) {
             if(it == NULL) {
                 addSensor(msg,prev,it,nList,distance);
             }
-            if (count < 3) {
+            if (count < 3) { // update measurement when sensor is one of the three closest sensors
                 ((struct dataT *)data)->msg->measurement = newMeasurement(((struct dataT *)data)->msg->measurement, msg->measurement, distance, ((struct dataT *)data)->type);
                 action = ACTION_CORRECTION;
             }
         } else {
             action = ACTION_REMOVED;
-            while (it != NULL) {
+            while (it != NULL) { // remove sensor from the list
                 if (msg->coords[0] == it->coord[0] && msg->coords[1] == it->coord[1]) {
                     if (prev != NULL) {
                         prev->next = it->next;
@@ -222,16 +223,16 @@ void handleMessagesReceived(sensor_message *msg, void *data, Neighbors *nList) {
                 it = it->next;
             }
         }
-    } else {
+    } else { // if sensor is on the same position just ignore
         if (strcmp(msg->type, ((struct dataT *)data)->msg->type) == 0 && diffCoord == 0) {
             action = ACTION_SAMELOC;
         }
     }
-
+    // send log message
     handleLog(msg, prevMeasurement, ((struct dataT *)data)->msg->measurement, action);
 }
 
-
+// thread that sends messages
 void *sendMessages(void *data) {
     int sock = ((struct dataT *)data)->sock;
     int timeout = ((struct dataT *)data)->timeout;
@@ -247,7 +248,7 @@ void *sendMessages(void *data) {
         send(sock,&msg,sizeof(msg),0);
     }
 }
-
+// thread that receive messages
 void *recvMessages(void *data) {
     sensor_message msg;
     int sock = ((struct dataT *)data)->sock;
@@ -275,7 +276,8 @@ int main(int argc, char *argv[])
     struct dataT data;
     Neighbors list;
     
-    if (argc < 8) // Test for correct number of arguments
+    // arguments error handling
+    if (argc < 8) 
         handleInputErrors("Error: Invalid number of arguments");
 
     if (strcmp(argv[3], "-type") != 0)
@@ -307,7 +309,6 @@ int main(int argc, char *argv[])
 
     char *servIP = argv[1]; // First arg: server IP address (dotted quad)
 
-    // Third arg (optional): server port (numeric). 7 is well-known echo port
     in_port_t servPort = atoi(argv[2]);
 
     int domain;                       // Domain type (AF_INET or AF_INET6)
@@ -347,6 +348,7 @@ int main(int argc, char *argv[])
     if (connect(sock, (struct sockaddr *)&servAddr, servAddrLen) < 0)
         killClient("connect() failed");
 
+    // initialize thread arguments
     measurement = randomMeasurement(type);
     msgToSend = handleMessage(coords, type, measurement);
     list.first = NULL;
@@ -357,14 +359,13 @@ int main(int argc, char *argv[])
     data.type = type;
     data.list = &list;
 
-
+    // create threads
     pthread_t sending_thread, receiving_thread;
     pthread_create(&sending_thread,NULL,sendMessages,&data);
     pthread_create(&receiving_thread,NULL,recvMessages,&data);
 
+    // keep code running
     for(;;){
 
     }
-    // close(sock);
-    // exit(0);
 }

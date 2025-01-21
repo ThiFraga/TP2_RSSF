@@ -9,6 +9,7 @@ typedef struct {
 
 typedef struct {
     Sensor sensores[MAXPENDING];
+    pthread_mutex_t mutex;
 } ListaSensores;
 
 struct ThreadArgs {
@@ -25,7 +26,7 @@ void killServer(const char *msg){
 void handleSensor(int clntSocket, ListaSensores *ls) {
     sensor_message msgRcv, msg;
     int type = 0, i = 0;
-
+    //receive first message 
     ssize_t numBytesRcv = recv(clntSocket, &msgRcv, sizeof(msgRcv),0);
 
     if(numBytesRcv > 0) {
@@ -35,23 +36,25 @@ void handleSensor(int clntSocket, ListaSensores *ls) {
             type = HUMIDITY;
         if (strcmp(msgRcv.type, "air_quality") == 0)
             type = AIRQUALITY;
-
+        // add sensor to list
         while (i < MAXPENDING) {
             if(ls->sensores[i].type == 0 && ls->sensores[i].clntSock == -2){
+                pthread_mutex_lock(&ls->mutex);
                 ls->sensores[i].type = type;
                 ls->sensores[i].clntSock = clntSocket;
+                pthread_mutex_unlock(&ls->mutex);
                 break;
             }
             i++;
-        }
-        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\n",msgRcv.type,msgRcv.coords[0],msgRcv.coords[1], msgRcv.measurement);
-
+        } // log sensor
+        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\n\n",msgRcv.type,msgRcv.coords[0],msgRcv.coords[1], msgRcv.measurement);
+        // send for sensors with same type
         for(int i = 0; i < MAXPENDING; i++) {
             if(ls->sensores[i].type == type && ls->sensores[i].clntSock >= 0) {
                 send(ls->sensores[i].clntSock, &msgRcv, sizeof(msgRcv),0);
             }
         }
-
+        // main loop for receiving and delivering messages
         for(;;){
             numBytesRcv = recv(clntSocket, &msg, sizeof(msg),0);
             if(numBytesRcv > 0) {
@@ -63,14 +66,16 @@ void handleSensor(int clntSocket, ListaSensores *ls) {
                     }
                 }
             }else {
+                // deal with disconnection of sensor
                 printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\n",msg.type,msg.coords[0],msg.coords[1], (-1.0));
                 msg.measurement = -1;
                 msg.coords[0] = msgRcv.coords[0];
                 msg.coords[1] = msgRcv.coords[1];
                 strcpy(msg.type, msgRcv.type);
-
+                pthread_mutex_lock(&ls->mutex);
                 ls->sensores[i].clntSock = -2;
                 ls->sensores[i].type = 0;
+                pthread_mutex_unlock(&ls->mutex);
                 for(int i = 0; i < MAXPENDING; i++) {
                     if(ls->sensores->type == type) {
                             send(ls->sensores[i].clntSock, &msg, sizeof(msg),0);
@@ -162,6 +167,8 @@ int main(int argc, char *argv[]) {
         listSensores.sensores[i].type = 0;
     }
 
+    pthread_mutex_init(&listSensores.mutex, NULL);
+
     for(;;) {
         struct sockaddr_in clntAddr;
         socklen_t clntAddrLen = sizeof(clntAddr);
@@ -181,6 +188,7 @@ int main(int argc, char *argv[]) {
                 int returnValue = pthread_create(&threadID, NULL, ThreadMain, threadArgs);
 
                 if(returnValue != 0) {
+                    free(threadArgs);
                     printf("pthread_create() failed");
                     printf("with thread %lu\n", (unsigned long int) threadID);
                 }
@@ -192,5 +200,7 @@ int main(int argc, char *argv[]) {
         }
 
     }
+    pthread_mutex_destroy(&listSensores.mutex);
+
 
 }
