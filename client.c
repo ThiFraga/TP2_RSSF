@@ -34,8 +34,34 @@ double getDistance(int coordI[2],int coordThey[2]) {
     return sqrt(pow((double)(coordThey[0] - coordI[0]),2) + pow((double)(coordThey[1] - coordI[1]),2));
 }
 
-float newMeasurement(float prevMeasu, float newMeasu, float distance) {
-    return prevMeasu + 0.1*(1/(distance + 1))*(newMeasu-prevMeasu);
+float newMeasurement(float prevMeasu, float newMeasu, float distance, int type) {
+    float minVal, maxVal, measurement;
+    switch (type)
+    {
+    case TEMPERATURE:
+        minVal = 20.0;
+        maxVal = 40.0;
+        break;
+
+    case HUMIDITY:
+        minVal = 10.0;
+        maxVal = 90.0;
+        break;
+    case AIRQUALITY:
+    default:
+        minVal = 15.0;
+        maxVal = 30.0;
+        
+        break;
+    }
+    measurement = prevMeasu + 0.1*(1/(distance + 1))*(newMeasu-prevMeasu);
+    if (measurement > maxVal){
+        return maxVal;
+    }
+    if(measurement < minVal) {
+        return minVal;
+    }
+    return measurement;
 }
 
 void killClient(const char *msg)
@@ -177,7 +203,7 @@ void handleMessagesReceived(sensor_message *msg, void *data, Neighbors *nList) {
                 addSensor(msg,prev,it,nList,distance);
             }
             if (count < 3) {
-                ((struct dataT *)data)->msg->measurement = newMeasurement(((struct dataT *)data)->msg->measurement, msg->measurement, distance);
+                ((struct dataT *)data)->msg->measurement = newMeasurement(((struct dataT *)data)->msg->measurement, msg->measurement, distance, ((struct dataT *)data)->type);
                 action = ACTION_CORRECTION;
             }
         } else {
