@@ -4,7 +4,7 @@ BIN_DIR = ./bin
 # Compilador e flags
 CC = gcc
 CFLAGS = -Wall -Wextra -g
-LDFLAGS = 
+LDFLAGS = -lm  # Link the math library
 
 # Arquivos de saída
 CLIENT_BIN = $(BIN_DIR)/client

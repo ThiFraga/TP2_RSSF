@@ -1,7 +1,6 @@
 #include "common.h"
 
-#define BUFSIZE 512 // Tamanho máximo do buffer
-#define MAXPENDING 12 // Número máximo de conexões pendentes
+#define MAXPENDING 12 // Max number of connections
 
 typedef struct {
     int clntSock;
@@ -25,7 +24,7 @@ void killServer(const char *msg){
 
 void handleSensor(int clntSocket, ListaSensores *ls) {
     sensor_message msgRcv, msg;
-    int type = 0;
+    int type = 0, i = 0;
 
     ssize_t numBytesRcv = recv(clntSocket, &msgRcv, sizeof(msgRcv),0);
 
@@ -37,34 +36,41 @@ void handleSensor(int clntSocket, ListaSensores *ls) {
         if (strcmp(msgRcv.type, "air_quality") == 0)
             type = AIRQUALITY;
 
-        for (int i = 0; i < MAXPENDING; i++) {
+        while (i < MAXPENDING) {
             if(ls->sensores[i].type == 0 && ls->sensores[i].clntSock == -2){
                 ls->sensores[i].type = type;
                 ls->sensores[i].clntSock = clntSocket;
                 break;
             }
+            i++;
         }
-        
-        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %f\n",msgRcv.type,msgRcv.coords[0],msgRcv.coords[1], msgRcv.measurement);
-        printf("Type: %i\n",type);
+        printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\n",msgRcv.type,msgRcv.coords[0],msgRcv.coords[1], msgRcv.measurement);
+
+        for(int i = 0; i < MAXPENDING; i++) {
+            if(ls->sensores[i].type == type && ls->sensores[i].clntSock >= 0) {
+                send(ls->sensores[i].clntSock, &msgRcv, sizeof(msgRcv),0);
+            }
+        }
+
         for(;;){
             numBytesRcv = recv(clntSocket, &msg, sizeof(msg),0);
             if(numBytesRcv > 0) {
-                printf("log:\n%s sensor in (%i,%i)\nmeasurement: %f\n",msg.type,msg.coords[0],msg.coords[1], msg.measurement);
+                printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\n",msg.type,msg.coords[0],msg.coords[1], msg.measurement);
 
                 for(int i = 0; i < MAXPENDING; i++) {
                     if(ls->sensores[i].type == type && ls->sensores[i].clntSock >= 0) {
-                        printf(">>> Sending to: %i\n", clntSocket);
                         send(ls->sensores[i].clntSock, &msg, sizeof(msg),0);
                     }
                 }
             }else {
-                printf("log:\n%s sensor in (%i,%i)\nmeasurement: %f\n",msg.type,msg.coords[0],msg.coords[1], (-1.0));
+                printf("log:\n%s sensor in (%i,%i)\nmeasurement: %.4f\n",msg.type,msg.coords[0],msg.coords[1], (-1.0));
                 msg.measurement = -1;
                 msg.coords[0] = msgRcv.coords[0];
                 msg.coords[1] = msgRcv.coords[1];
                 strcpy(msg.type, msgRcv.type);
 
+                ls->sensores[i].clntSock = -2;
+                ls->sensores[i].type = 0;
                 for(int i = 0; i < MAXPENDING; i++) {
                     if(ls->sensores->type == type) {
                             send(ls->sensores[i].clntSock, &msg, sizeof(msg),0);

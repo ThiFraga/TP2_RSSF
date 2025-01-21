@@ -11,6 +11,12 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <pthread.h>
+#include <sys/time.h>
+#include <math.h>
+
+#define TEMPERATURE 1
+#define HUMIDITY 2
+#define AIRQUALITY 3
 
 
 typedef struct {
